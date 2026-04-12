@@ -1,0 +1,3 @@
+pip install opencv-python numpy pandas torch torchvision
+pip install ultralytics
+pip install lap filterpy scikit-learn
