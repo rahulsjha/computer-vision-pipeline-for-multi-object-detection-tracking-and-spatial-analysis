@@ -4,7 +4,7 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import cv2
 import numpy as np
@@ -106,20 +106,73 @@ def _parse_classes(value: Optional[str]) -> Optional[List[int]]:
     return out if out else None
 
 
-def build_tracker(tracker_name: str, fps: float):
+def _apply_if_not_none(cfg: dict[str, Any], key: str, value: Any) -> None:
+    if value is not None:
+        cfg[key] = value
+
+
+def build_tracker(
+    tracker_name: str,
+    fps: float,
+    profile: str,
+    reid: Optional[bool],
+    reid_model: str,
+    track_buffer: Optional[int],
+    track_high_thresh: Optional[float],
+    track_low_thresh: Optional[float],
+    new_track_thresh: Optional[float],
+    match_thresh: Optional[float],
+) -> Any:
     trackers_dir = os.path.join(str(ROOT), "cfg", "trackers")
-    if tracker_name.lower() in {"botsort", "botsort.yaml"}:
+    frame_rate = int(round(fps)) or 30
+
+    tracker_name = tracker_name.lower()
+    if tracker_name == "botsort":
         yaml_path = os.path.join(trackers_dir, "botsort.yaml")
         cfg = YAML.load(yaml_path)
-        # Ensure we don't require ReID features when running custom predict loop
-        cfg["with_reid"] = False
+
+        # Stability-first defaults
+        if profile == "stable":
+            cfg["track_buffer"] = 90
+            cfg["track_high_thresh"] = 0.35
+            cfg["track_low_thresh"] = 0.10
+            cfg["new_track_thresh"] = 0.35
+            cfg["match_thresh"] = 0.85
+            cfg["with_reid"] = True
+            cfg["model"] = reid_model
+
+        # Explicit overrides
+        _apply_if_not_none(cfg, "track_buffer", track_buffer)
+        _apply_if_not_none(cfg, "track_high_thresh", track_high_thresh)
+        _apply_if_not_none(cfg, "track_low_thresh", track_low_thresh)
+        _apply_if_not_none(cfg, "new_track_thresh", new_track_thresh)
+        _apply_if_not_none(cfg, "match_thresh", match_thresh)
+        if reid is not None:
+            cfg["with_reid"] = bool(reid)
+            if cfg["with_reid"]:
+                cfg["model"] = reid_model
+
         args = IterableSimpleNamespace(**cfg)
-        return BOTSORT(args=args, frame_rate=int(round(fps)) or 30)
-    if tracker_name.lower() in {"bytetrack", "bytetrack.yaml"}:
+        return BOTSORT(args=args, frame_rate=frame_rate)
+
+    if tracker_name == "bytetrack":
         yaml_path = os.path.join(trackers_dir, "bytetrack.yaml")
         cfg = YAML.load(yaml_path)
+        if profile == "stable":
+            cfg["track_buffer"] = 90
+            cfg["track_high_thresh"] = 0.35
+            cfg["track_low_thresh"] = 0.10
+            cfg["new_track_thresh"] = 0.35
+            cfg["match_thresh"] = 0.85
+
+        _apply_if_not_none(cfg, "track_buffer", track_buffer)
+        _apply_if_not_none(cfg, "track_high_thresh", track_high_thresh)
+        _apply_if_not_none(cfg, "track_low_thresh", track_low_thresh)
+        _apply_if_not_none(cfg, "new_track_thresh", new_track_thresh)
+        _apply_if_not_none(cfg, "match_thresh", match_thresh)
+
         args = IterableSimpleNamespace(**cfg)
-        return BYTETracker(args=args, frame_rate=int(round(fps)) or 30)
+        return BYTETracker(args=args, frame_rate=frame_rate)
 
     raise ValueError("tracker must be one of: botsort, bytetrack")
 
@@ -148,6 +201,32 @@ def main() -> int:
         help="Tracker backend (default: botsort)",
     )
     parser.add_argument(
+        "--profile",
+        default="stable",
+        choices=["stable", "balanced"],
+        help="Tracking profile (default: stable). 'stable' reduces ID switches but may miss weak detections.",
+    )
+    parser.add_argument(
+        "--reid",
+        action="store_true",
+        help="Force-enable ReID for BoT-SORT (improves ID stability, slower).",
+    )
+    parser.add_argument(
+        "--no-reid",
+        action="store_true",
+        help="Force-disable ReID for BoT-SORT (faster, potentially more ID switches).",
+    )
+    parser.add_argument(
+        "--reid-model",
+        default="yolo26n-cls.pt",
+        help="ReID model to use when ReID is enabled (default: yolo26n-cls.pt)",
+    )
+    parser.add_argument("--track-buffer", type=int, default=None, help="Override tracker track_buffer")
+    parser.add_argument("--track-high-thresh", type=float, default=None, help="Override track_high_thresh")
+    parser.add_argument("--track-low-thresh", type=float, default=None, help="Override track_low_thresh")
+    parser.add_argument("--new-track-thresh", type=float, default=None, help="Override new_track_thresh")
+    parser.add_argument("--match-thresh", type=float, default=None, help="Override match_thresh")
+    parser.add_argument(
         "--roi",
         default=None,
         help="Optional ROI polygon JSON. If omitted, auto-detect on first frame and save to output/scene_roi.json",
@@ -174,6 +253,18 @@ def main() -> int:
         "--no-mask",
         action="store_true",
         help="Do not black-out pixels outside ROI before detection (still filters detections by ROI).",
+    )
+    parser.add_argument(
+        "--min-box-area",
+        type=int,
+        default=900,
+        help="Filter detections smaller than this area in pixels (default: 900).",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="Process only the first N frames (0 = all frames).",
     )
 
     args = parser.parse_args()
@@ -208,7 +299,26 @@ def main() -> int:
 
     # Init model + tracker
     model = YOLO(args.model)
-    tracker = build_tracker(args.tracker, fps=fps)
+    reid: Optional[bool]
+    if args.no_reid:
+        reid = False
+    elif args.reid:
+        reid = True
+    else:
+        reid = None
+
+    tracker = build_tracker(
+        args.tracker,
+        fps=fps,
+        profile=args.profile,
+        reid=reid,
+        reid_model=args.reid_model,
+        track_buffer=args.track_buffer,
+        track_high_thresh=args.track_high_thresh,
+        track_low_thresh=args.track_low_thresh,
+        new_track_thresh=args.new_track_thresh,
+        match_thresh=args.match_thresh,
+    )
 
     ensure_parent_dir(args.output_video)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -230,6 +340,8 @@ def main() -> int:
         ok, frame = cap.read()
         if not ok or frame is None:
             break
+        if args.max_frames and frame_index >= int(args.max_frames):
+            break
 
         if not args.no_mask:
             masked = cv2.bitwise_and(frame, frame, mask=roi_mask)
@@ -247,14 +359,18 @@ def main() -> int:
 
         det = result.boxes.cpu().numpy()
 
-        # Filter detections strictly inside ROI (area filtering)
+        # Filter detections strictly inside ROI + remove tiny boxes (area filtering)
         if len(det):
             xyxy = det.xyxy
             centers = np.stack([(xyxy[:, 0] + xyxy[:, 2]) / 2, (xyxy[:, 1] + xyxy[:, 3]) / 2], axis=1)
-            keep = roi.contains_points(centers)
+            keep_roi = roi.contains_points(centers)
+            box_area = (xyxy[:, 2] - xyxy[:, 0]) * (xyxy[:, 3] - xyxy[:, 1])
+            keep_area = box_area >= float(args.min_box_area)
+            keep = keep_roi & keep_area
             det = det[keep]
 
-        tracks = tracker.update(det, frame, feats=None)
+        # Pass the same image used for detection into tracker (important when ReID is enabled)
+        tracks = tracker.update(det, masked, feats=None)
 
         # Draw
         annotated = frame.copy()

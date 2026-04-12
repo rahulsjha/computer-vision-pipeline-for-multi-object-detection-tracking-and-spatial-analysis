@@ -22,6 +22,18 @@ Runs YOLO detection per-frame, then tracks with BoT-SORT (default) to keep IDs s
 .\venv\Scripts\python.exe .\track_cv.py --source output\clip_5min.mp4 --output-video output\tracked.mp4 --output-csv output\tracks.csv
 ```
 
+Stability-first tip (recommended for submissions):
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py --source output\clip_5min.mp4 --profile stable --output-video output\tracked.mp4 --output-csv output\tracks.csv
+```
+
+Quick sanity-check on just the first ~60 seconds:
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py --source output\clip_5min.mp4 --profile stable --max-frames 1800 --output-video output\tracked_60s.mp4 --output-csv output\tracks_60s.csv
+```
+
 Notes:
 
 - If you do not pass `--roi`, the script auto-detects a scene boundary from the first frame and saves it to
