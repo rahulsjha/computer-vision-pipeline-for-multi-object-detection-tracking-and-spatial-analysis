@@ -30,6 +30,37 @@ class RoiPolygon:
             out[i] = cv2.pointPolygonTest(poly, (float(x), float(y)), False) >= 0
         return out
 
+    def contains_boxes_xyxy(self, xyxy: np.ndarray, mode: str = "box") -> np.ndarray:
+        """Return a boolean mask for which boxes are inside/on the polygon.
+
+        Args:
+            xyxy: array of shape (N, 4) in [x1, y1, x2, y2]
+            mode: "center" requires center point inside; "box" requires all 4 corners inside
+        """
+        if len(xyxy) == 0:
+            return np.zeros((0,), dtype=bool)
+        if mode not in {"center", "box"}:
+            raise ValueError("mode must be 'center' or 'box'")
+
+        poly = np.array(self.points, dtype=np.int32)
+
+        if mode == "center":
+            centers = np.stack([(xyxy[:, 0] + xyxy[:, 2]) / 2, (xyxy[:, 1] + xyxy[:, 3]) / 2], axis=1)
+            out = np.zeros((len(centers),), dtype=bool)
+            for i, (x, y) in enumerate(centers.astype(float)):
+                out[i] = cv2.pointPolygonTest(poly, (float(x), float(y)), False) >= 0
+            return out
+
+        # mode == "box": all corners must be inside/on ROI
+        out = np.ones((len(xyxy),), dtype=bool)
+        for i, (x1, y1, x2, y2) in enumerate(xyxy.astype(float)):
+            corners = ((x1, y1), (x2, y1), (x2, y2), (x1, y2))
+            for (x, y) in corners:
+                if cv2.pointPolygonTest(poly, (float(x), float(y)), False) < 0:
+                    out[i] = False
+                    break
+        return out
+
     def mask(self, frame_shape: Sequence[int]) -> np.ndarray:
         h, w = int(frame_shape[0]), int(frame_shape[1])
         mask = np.zeros((h, w), dtype=np.uint8)

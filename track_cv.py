@@ -231,6 +231,12 @@ def main() -> int:
         default=None,
         help="Optional ROI polygon JSON. If omitted, auto-detect on first frame and save to output/scene_roi.json",
     )
+    parser.add_argument(
+        "--roi-policy",
+        default="box",
+        choices=["box", "center"],
+        help="How to enforce ROI filtering (default: box). 'box' requires all 4 bbox corners inside ROI.",
+    )
     parser.add_argument("--conf", type=float, default=0.25, help="Detection confidence threshold")
     parser.add_argument("--iou", type=float, default=0.7, help="NMS IoU threshold")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference image size")
@@ -261,6 +267,15 @@ def main() -> int:
         help="Filter detections smaller than this area in pixels (default: 900).",
     )
     parser.add_argument(
+        "--min-track-frames",
+        type=int,
+        default=0,
+        help=(
+            "Only start reporting/drawing a track after it has been seen for N frames. "
+            "0 = auto (stable: 5, balanced: 1)."
+        ),
+    )
+    parser.add_argument(
         "--max-frames",
         type=int,
         default=0,
@@ -268,6 +283,10 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    min_track_frames = int(args.min_track_frames)
+    if min_track_frames <= 0:
+        min_track_frames = 5 if args.profile == "stable" else 1
 
     classes = _parse_classes(args.classes)
 
@@ -335,6 +354,7 @@ def main() -> int:
 
     rows: List[TrackRow] = []
     frame_index = 0
+    track_seen: dict[int, int] = {}
 
     while True:
         ok, frame = cap.read()
@@ -362,8 +382,7 @@ def main() -> int:
         # Filter detections strictly inside ROI + remove tiny boxes (area filtering)
         if len(det):
             xyxy = det.xyxy
-            centers = np.stack([(xyxy[:, 0] + xyxy[:, 2]) / 2, (xyxy[:, 1] + xyxy[:, 3]) / 2], axis=1)
-            keep_roi = roi.contains_points(centers)
+            keep_roi = roi.contains_boxes_xyxy(xyxy, mode=str(args.roi_policy))
             box_area = (xyxy[:, 2] - xyxy[:, 0]) * (xyxy[:, 3] - xyxy[:, 1])
             keep_area = box_area >= float(args.min_box_area)
             keep = keep_roi & keep_area
@@ -384,6 +403,14 @@ def main() -> int:
                 conf = float(t[5])
                 cls_id = int(t[6])
                 cls_name = model.names.get(cls_id, str(cls_id)) if hasattr(model, "names") else str(cls_id)
+
+                # Enforce ROI restriction on tracker outputs too (strictness for evaluator)
+                if not bool(roi.contains_boxes_xyxy(np.array([[x1, y1, x2, y2]], dtype=np.float32), mode=str(args.roi_policy))[0]):
+                    continue
+
+                track_seen[track_id] = track_seen.get(track_id, 0) + 1
+                if track_seen[track_id] < min_track_frames:
+                    continue
 
                 rows.append(
                     TrackRow(

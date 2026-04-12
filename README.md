@@ -38,6 +38,7 @@ Notes:
 
 - If you do not pass `--roi`, the script auto-detects a scene boundary from the first frame and saves it to
 	`output/scene_roi.json`.
+- ROI filtering default is strict: a bbox is kept only if **all 4 corners** are inside the ROI (`--roi-policy box`).
 - To force a specific ROI:
 
 ```powershell
