@@ -246,7 +246,7 @@ You can embed those PNGs into external reports or slide decks as needed.
 
 Global occupancy heatmap:
 
-![Global heatmap](output/heatmap_global.png)
+![Global heatmap](heatmap_global.png)
 
 Cluster / zone‑like heatmaps:
 
@@ -256,11 +256,11 @@ Cluster / zone‑like heatmaps:
 
 High‑intensity event map:
 
-![Event density heatmap](output/heatmap_events.png)
+![Event density heatmap](heatmap_events.png)
 
 2D trajectory map (all tracks, normalized to pitch plane):
 
-![2D trajectories](output/trajectories_2d.png)
+![2D trajectories](trajectories_2d.png)
 
 ---
 
