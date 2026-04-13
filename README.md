@@ -161,10 +161,10 @@ Given the geometry‑enriched CSV and ROI, generate spatial visualizations on to
 
 This produces (all constrained by the ROI polygon):
 
-- `output/heatmap_global.png` – global positional heatmap of all player positions.
-- `output/heatmap_cluster_*.png` – per‑cluster heatmaps showing positional tendencies by zone/role.
-- `output/heatmap_events.png` – high‑contrast event density map (Gaussian‑blurred global heat).
-- `output/trajectories_2d.png` – static 2D trajectory map with polylines for each ID.
+- `heatmap_global.png` – global positional heatmap of all player positions.
+- `heatmap_cluster_*.png` – per‑cluster heatmaps showing positional tendencies by zone/role.
+- `heatmap_events.png` – high‑contrast event density map (Gaussian‑blurred global heat).
+- `trajectories_2d.png` – static 2D trajectory map with polylines for each ID.
 
 ---
 
