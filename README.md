@@ -250,9 +250,9 @@ Global occupancy heatmap:
 
 Cluster / zone‑like heatmaps:
 
-![Cluster 0 heatmap](output/heatmap_cluster_0.png)
-![Cluster 1 heatmap](output/heatmap_cluster_1.png)
-![Cluster 2 heatmap](output/heatmap_cluster_2.png)
+![Cluster 0 heatmap](heatmap_cluster_0.png)
+![Cluster 1 heatmap](heatmap_cluster_1.png)
+![Cluster 2 heatmap](heatmap_cluster_2.png)
 
 High‑intensity event map:
 
