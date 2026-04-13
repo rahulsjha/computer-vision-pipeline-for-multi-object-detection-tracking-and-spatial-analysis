@@ -5,6 +5,7 @@ import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from math import hypot
 from typing import Any, Dict, List, Optional
 
 import cv2
@@ -35,6 +36,30 @@ def ensure_parent_dir(path: str) -> None:
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
+
+
+def compute_meter_per_pixel(roi: RoiPolygon, field_length_m: float) -> float:
+    """Estimate a global pixel→meter scale from the ROI.
+
+    Uses the maximum distance between ROI vertices as the main field axis and
+    assumes that length corresponds to `field_length_m` meters.
+    """
+
+    pts = np.array(roi.points, dtype=float)
+    if len(pts) < 2:
+        return 0.05  # conservative fallback (20 px ≈ 1 m)
+
+    max_d = 0.0
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            d = hypot(pts[i, 0] - pts[j, 0], pts[i, 1] - pts[j, 1])
+            if d > max_d:
+                max_d = d
+
+    if max_d <= 0:
+        return 0.05
+
+    return float(field_length_m) / float(max_d)
 
 
 def gap_fill_rows(
@@ -133,41 +158,167 @@ def draw_track(frame: np.ndarray, row: TrackRow) -> None:
     )
 
 
-def write_csv(path: str, rows: List[TrackRow]) -> None:
+def build_movement_table(
+    rows: List[TrackRow],
+    fps: float,
+    meter_per_pixel: float,
+    field_length_m: float,
+    clusters: int = 3,
+) -> List[Dict[str, Any]]:
+    """Convert raw track rows into movement-enriched dictionaries.
+
+    Adds pixel center, world coordinates (meters), per-frame speed, cumulative
+    distance, and a simple cluster_id based on mean field position.
+    """
+
+    if not rows:
+        return []
+
+    by_track: Dict[int, List[TrackRow]] = defaultdict(list)
+    for r in rows:
+        by_track[r.track_id].append(r)
+
+    # First pass: compute per-track trajectories and metrics
+    per_track_rows: Dict[int, List[Dict[str, Any]]] = {}
+    track_mean_x_m: Dict[int, float] = {}
+
+    for tid, seq in by_track.items():
+        if not seq:
+            continue
+        seq_sorted = sorted(seq, key=lambda r: r.frame_index)
+
+        track_entries: List[Dict[str, Any]] = []
+        total_dist_m = 0.0
+        sum_x_m = 0.0
+        count = 0
+
+        prev_cx = prev_cy = None
+        prev_frame = None
+
+        for r in seq_sorted:
+            cx = 0.5 * (r.x1 + r.x2)
+            cy = 0.5 * (r.y1 + r.y2)
+            x_m = cx * meter_per_pixel
+            y_m = cy * meter_per_pixel
+
+            speed_mps = 0.0
+            if prev_cx is not None and prev_cy is not None and prev_frame is not None:
+                dt = (r.frame_index - prev_frame) / float(fps) if fps > 0 else 0.0
+                if dt > 0:
+                    d_pix = hypot(cx - prev_cx, cy - prev_cy)
+                    d_m = d_pix * meter_per_pixel
+                    total_dist_m += d_m
+                    speed_mps = d_m / dt
+
+            speed_kmh = speed_mps * 3.6
+
+            entry = {
+                "frame_index": r.frame_index,
+                "frame_id": r.frame_index,
+                "time_seconds": r.time_seconds,
+                "track_id": r.track_id,
+                "object_id": r.track_id,
+                "cls_id": r.cls_id,
+                "cls_name": r.cls_name,
+                "conf": r.conf,
+                "x1": r.x1,
+                "y1": r.y1,
+                "x2": r.x2,
+                "y2": r.y2,
+                "x": cx,
+                "y": cy,
+                "x_meters": x_m,
+                "y_meters": y_m,
+                "speed_mps": speed_mps,
+                "speed_kmh": speed_kmh,
+                "speed": speed_kmh,
+                "distance_traveled": total_dist_m,
+                # cluster_id filled later
+                "cluster_id": -1,
+            }
+            track_entries.append(entry)
+
+            prev_cx, prev_cy, prev_frame = cx, cy, r.frame_index
+            sum_x_m += x_m
+            count += 1
+
+        if not track_entries or count == 0:
+            continue
+
+        per_track_rows[tid] = track_entries
+        track_mean_x_m[tid] = sum_x_m / float(count)
+
+    # Second pass: simple clustering by mean x-position
+    cluster_edges: List[float] = []
+    if track_mean_x_m:
+        # Spread clusters evenly along field length [0, field_length_m]
+        if clusters <= 1:
+            cluster_edges = [float(field_length_m)]
+        else:
+            step = float(field_length_m) / float(clusters)
+            cluster_edges = [step * (i + 1) for i in range(clusters - 1)] + [float("inf")]
+
+    cluster_for_track: Dict[int, int] = {}
+    for tid, mx in track_mean_x_m.items():
+        cid = 0
+        for idx, edge in enumerate(cluster_edges):
+            if mx <= edge:
+                cid = idx
+                break
+        cluster_for_track[tid] = cid
+
+    # Final table
+    table: List[Dict[str, Any]] = []
+    for tid, entries in per_track_rows.items():
+        cid = cluster_for_track.get(tid, 0)
+        for e in entries:
+            e["cluster_id"] = cid
+            table.append(e)
+
+    # Sort by frame then id for easier analysis
+    table.sort(key=lambda d: (d["frame_index"], d["track_id"]))
+    return table
+
+
+def write_movement_csv(path: str, table: List[Dict[str, Any]]) -> None:
     import csv
 
     ensure_parent_dir(path)
+    if not table:
+        # still write header for downstream tools
+        headers = [
+            "frame_index",
+            "frame_id",
+            "time_seconds",
+            "track_id",
+            "object_id",
+            "cls_id",
+            "cls_name",
+            "conf",
+            "x1",
+            "y1",
+            "x2",
+            "y2",
+            "x",
+            "y",
+            "x_meters",
+            "y_meters",
+            "speed_mps",
+            "speed_kmh",
+            "speed",
+            "distance_traveled",
+            "cluster_id",
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(headers)
+        return
+
+    headers = list(table[0].keys())
     with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(
-            [
-                "frame_index",
-                "time_seconds",
-                "track_id",
-                "cls_id",
-                "cls_name",
-                "conf",
-                "x1",
-                "y1",
-                "x2",
-                "y2",
-            ]
-        )
-        for r in rows:
-            w.writerow(
-                [
-                    r.frame_index,
-                    f"{r.time_seconds:.6f}",
-                    r.track_id,
-                    r.cls_id,
-                    r.cls_name,
-                    f"{r.conf:.6f}",
-                    f"{r.x1:.2f}",
-                    f"{r.y1:.2f}",
-                    f"{r.x2:.2f}",
-                    f"{r.y2:.2f}",
-                ]
-            )
+        w = csv.DictWriter(f, fieldnames=headers)
+        w.writeheader()
+        for row in table:
+            w.writerow(row)
 
 
 def _parse_classes(value: Optional[str]) -> Optional[List[int]]:
@@ -362,6 +513,12 @@ def main() -> int:
         action="store_true",
         help="Disable interpolation-based gap filling in the CSV output.",
     )
+    parser.add_argument(
+        "--field-length-m",
+        type=float,
+        default=105.0,
+        help="Approximate real-world length of the main field axis in meters (default: 105).",
+    )
 
     args = parser.parse_args()
 
@@ -533,12 +690,35 @@ def main() -> int:
     writer.release()
     cap.release()
 
-    write_csv(args.output_csv, rows)
-    if not args.no_gap_fill:
+    if not rows:
+        print("Warning: no tracks were collected; CSV will be empty.")
+        write_movement_csv(args.output_csv, [])
+        return 0
+
+    if args.no_gap_fill:
+        rows_final = rows
+    else:
         print("Post-processing tracks to fill intra-ID frame gaps ...")
-        rows_filled = gap_fill_rows(rows, fps=fps, roi=roi, roi_policy=args.roi_policy, min_box_area=float(args.min_box_area))
-        write_csv(args.output_csv, rows_filled)
+        rows_final = gap_fill_rows(
+            rows,
+            fps=fps,
+            roi=roi,
+            roi_policy=args.roi_policy,
+            min_box_area=float(args.min_box_area),
+        )
         print("Gap filling complete.")
+
+    meter_per_pixel = compute_meter_per_pixel(roi, field_length_m=float(args.field_length_m))
+    print(f"Estimated scene scale: {meter_per_pixel:.6f} meters per pixel (field length ~{args.field_length_m} m)")
+
+    table = build_movement_table(
+        rows_final,
+        fps=fps,
+        meter_per_pixel=meter_per_pixel,
+        field_length_m=float(args.field_length_m),
+    )
+    write_movement_csv(args.output_csv, table)
+
     print(f"Done. Wrote {args.output_video} and {args.output_csv}")
     if not args.roi:
         print("ROI saved to output/scene_roi.json")

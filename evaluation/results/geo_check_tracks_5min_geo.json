@@ -1,0 +1,18 @@
+{
+  "path": "output\\tracks_5min_geo.csv",
+  "rows": 90345,
+  "unique_object_ids": 657,
+  "duration_s": 299.96,
+  "fps_est": 25.000000000000533,
+  "missing_required_columns": [],
+  "meter_per_pixel_x_median": 0.05201022435167207,
+  "meter_per_pixel_y_median": 0.05201022435167207,
+  "meter_per_pixel_x_p95_abs_dev": 6.938893903907228e-18,
+  "meter_per_pixel_y_p95_abs_dev": 6.938893903907228e-18,
+  "speed_mps_min": 0.0,
+  "speed_mps_median": 2.1814970249075984,
+  "speed_mps_p95": 7.60866897381852,
+  "speed_mps_max": 36.710972023491955,
+  "negative_speed_rows": 0,
+  "distance_nonmonotonic_objects": 0
+}

@@ -119,9 +119,9 @@ def rate(metrics: TrackMetrics) -> dict[str, Any]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Rate pipeline output against rubric (Detection/Tracking/Scene filtering)")
-    ap.add_argument("--csv", required=True, help="Tracks CSV (e.g., output/tracks_30s_strict.csv)")
+    ap.add_argument("--csv", required=True, help="Tracks CSV (e.g., output/tracks_5min_geo.csv)")
     ap.add_argument("--roi", required=True, help="ROI JSON (e.g., output/scene_roi.json)")
-    ap.add_argument("--out", default=str(Path("output") / "rubric_scorecard.json"), help="Output JSON path")
+    ap.add_argument("--out", default=str(Path("evaluation") / "results" / "rubric_scorecard.json"), help="Output JSON path")
     args = ap.parse_args()
 
     m = compute_metrics(csv_path=Path(args.csv), roi_path=Path(args.roi))
