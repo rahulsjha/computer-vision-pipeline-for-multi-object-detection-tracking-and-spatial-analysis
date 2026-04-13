@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -34,6 +35,81 @@ def ensure_parent_dir(path: str) -> None:
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
+
+
+def gap_fill_rows(
+    rows: List[TrackRow],
+    fps: float,
+    roi: RoiPolygon,
+    roi_policy: str,
+    min_box_area: float,
+) -> List[TrackRow]:
+    """Interpolate missing frames within each track ID to remove gaps.
+
+    This operates purely on the CSV rows (post-tracking) and does not change the video.
+    """
+
+    if not rows:
+        return rows
+
+    by_track: Dict[int, List[TrackRow]] = defaultdict(list)
+    for r in rows:
+        by_track[r.track_id].append(r)
+
+    filled: List[TrackRow] = []
+
+    for tid, seq in by_track.items():
+        if not seq:
+            continue
+        seq.sort(key=lambda r: r.frame_index)
+        prev = seq[0]
+        filled.append(prev)
+
+        for cur in seq[1:]:
+            gap = int(cur.frame_index) - int(prev.frame_index)
+            if gap > 1:
+                steps = gap
+                for k in range(1, gap):
+                    alpha = k / float(steps)
+                    fi = int(prev.frame_index + k)
+                    t = fi / float(fps) if fps > 0 else 0.0
+
+                    x1 = prev.x1 + (cur.x1 - prev.x1) * alpha
+                    y1 = prev.y1 + (cur.y1 - prev.y1) * alpha
+                    x2 = prev.x2 + (cur.x2 - prev.x2) * alpha
+                    y2 = prev.y2 + (cur.y2 - prev.y2) * alpha
+
+                    # Keep strict ROI and area semantics for synthetic frames
+                    area = (x2 - x1) * (y2 - y1)
+                    if area < float(min_box_area):
+                        continue
+
+                    box_arr = np.array([[x1, y1, x2, y2]], dtype=np.float32)
+                    inside = roi.contains_boxes_xyxy(box_arr, mode=str(roi_policy))
+                    if not bool(inside[0]):
+                        continue
+
+                    conf = min(prev.conf, cur.conf)
+                    filled.append(
+                        TrackRow(
+                            frame_index=fi,
+                            time_seconds=t,
+                            track_id=tid,
+                            cls_id=prev.cls_id,
+                            cls_name=prev.cls_name,
+                            conf=conf,
+                            x1=x1,
+                            y1=y1,
+                            x2=x2,
+                            y2=y2,
+                        )
+                    )
+
+            filled.append(cur)
+            prev = cur
+
+    filled.sort(key=lambda r: (r.frame_index, r.track_id))
+    return filled
 
 
 def draw_roi(frame: np.ndarray, roi: RoiPolygon) -> None:
@@ -281,6 +357,11 @@ def main() -> int:
         default=0,
         help="Process only the first N frames (0 = all frames).",
     )
+    parser.add_argument(
+        "--no-gap-fill",
+        action="store_true",
+        help="Disable interpolation-based gap filling in the CSV output.",
+    )
 
     args = parser.parse_args()
 
@@ -453,6 +534,11 @@ def main() -> int:
     cap.release()
 
     write_csv(args.output_csv, rows)
+    if not args.no_gap_fill:
+        print("Post-processing tracks to fill intra-ID frame gaps ...")
+        rows_filled = gap_fill_rows(rows, fps=fps, roi=roi, roi_policy=args.roi_policy, min_box_area=float(args.min_box_area))
+        write_csv(args.output_csv, rows_filled)
+        print("Gap filling complete.")
     print(f"Done. Wrote {args.output_video} and {args.output_csv}")
     if not args.roi:
         print("ROI saved to output/scene_roi.json")
