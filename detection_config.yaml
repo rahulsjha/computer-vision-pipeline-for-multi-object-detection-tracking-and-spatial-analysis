@@ -1,0 +1,66 @@
+# Detection Configuration Parameters
+# Version: 2.0 (Enhanced Quality)
+
+detection:
+  # Model Selection
+  model: "yolov9c.pt"  # Options: yolov8n, yolov8s, yolov9c, yolov9m
+  device: "cuda"       # Options: cuda, cpu, mps
+  half_precision: true # Use fp16 for faster inference
+  
+  # Confidence Thresholds
+  confidence_threshold: 0.60  # Minimum detection confidence (upgraded from 0.35)
+  min_confidence_strict: 0.65 # For high-precision scenarios
+  max_confidence: 1.0         # Upper bound (reject artifacts)
+  
+  # IoU (Intersection over Union) - Non-Maximum Suppression
+  iou_threshold: 0.45         # NMS IoU threshold (stricter, was 0.30)
+  agnostic_nms: true          # Apply NMS across all classes
+  max_det: 300                # Maximum detections per frame
+  
+  # Bounding Box Filtering
+  bbox_area:
+    min_px: 2500              # Min area (50×50px, removes distant noise)
+    max_px: 921600            # Max area (960×960px, removes artifacts)
+  
+  bbox_aspect_ratio:
+    min: 0.3                  # Min width/height ratio
+    max: 3.3                  # Max width/height ratio
+  
+  # Class-Specific Filtering
+  classes_to_detect: [0]      # 0=person (exclude background/irrelevant)
+  
+  # Augmentation for Robustness
+  augment: false              # Disable test-time augmentation (speed)
+  
+  # Advanced Settings
+  verbose: false              # Silence ultralytics logs
+  retina_masks: false         # Disable for speed
+  imgsz: 640                  # Inference image size
+
+# Confidence Thresholds by Scene Type
+confidence_dynamic:
+  # Dynamically adjust confidence based on frame characteristics
+  enable_adaptive: false      # TODO: Implement scene density detection
+  
+  # Thresholds for different densities
+  low_density:   0.50         # When few objects present
+  medium_density: 0.60        # Normal scene
+  high_density:   0.70        # Crowded scene (set pieces)
+
+# Post-Processing
+post_processing:
+  # Duplicate Detection Removal
+  remove_duplicates: true
+  duplicate_iou_threshold: 0.85
+  
+  # Vertical Alignment Check (for football)
+  check_vertical_order: false  # TODO: Enforce realistic Y ordering
+  
+  # Motion Consistency
+  check_motion_consistency: false  # TODO: Flag sudden teleportation
+
+# Logging
+logging:
+  log_detections: false
+  save_debug_images: false
+  log_path: "debug/detections/"

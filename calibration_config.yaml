@@ -1,0 +1,124 @@
+# Geometric Calibration Configuration
+# Version: 2.0 (Homography-Based with Keypoint Detection)
+
+calibration:
+  # Calibration Method
+  method: "homography"         # Options: homography, perspective, direct_scaling
+  
+  # Pitch Model (Standard Football)
+  pitch_model:
+    enable: true
+    length_m: 105.0            # FIFA standard
+    width_m: 68.0              # FIFA standard
+    
+    # Key Markings for Validation
+    markings:
+      center_circle_radius: 9.15
+      goal_area_length: 5.5
+      penalty_area_length: 16.5
+      penalty_area_width: 40.3
+      corner_arc_radius: 1.0
+      
+  # Keypoint Detection (for Homography)
+  keypoint_detection:
+    enable: true
+    
+    # Line Detection (Hough Transform)
+    hough_lines:
+      method: "probabilistic"   # Options: standard, probabilistic
+      rho: 1.0                  # Line distance resolution (pixels)
+      theta: 0.017453293        # Line angle resolution (radians, ~1 degree)
+      threshold: 100            # Minimum votes for line
+      min_line_length: 200      # Minimum line segment length (pixels)
+      max_line_gap: 20          # Maximum gap between line segments
+      
+    # Circular Hough Transform (Center Circle)
+    hough_circle:
+      dp: 1.0                   # Accumulator resolution ratio
+      min_dist: 200             # Minimum distance between circles
+      param1: 100               # Canny edge threshold
+      param2: 30                # Accumulator threshold
+      min_radius: 40            # Minimum radius (pixels)
+      max_radius: 100           # Maximum radius (pixels)
+      
+    # Corner Detection
+    corner_detection:
+      method: "intersection"    # Find line intersections
+      intersection_tolerance: 5 # Pixels
+      
+  # Camera Calibration
+  camera:
+    # Field of View Estimation
+    assume_fov: 60.0           # Degrees (frontal view assumption)
+    
+    # Principal Point (usually image center)
+    auto_principal_point: true
+    
+    # Lens Distortion (optional)
+    apply_distortion_correction: false
+    k1: 0.0                    # Radial distortion coefficient
+    k2: 0.0
+    p1: 0.0                    # Tangential distortion
+    p2: 0.0
+
+# Calibration Validation
+validation:
+  enable: true
+  
+  # Known Distance Checks
+  validate_known_distances: true
+  tolerance_percent: 5.0       # ±5% error tolerance
+  
+  # Bounds Verification
+  check_bounds: true
+  x_bounds: [0.0, 105.0]      # Meters
+  y_bounds: [0.0, 68.0]       # Meters
+  
+  # Reprojection Error
+  max_reprojection_error: 0.5  # Meters
+  
+  # Visual Validation
+  save_calibration_debug: true
+  debug_output_path: "debug/calibration/"
+
+# Dynamic Calibration (for camera movement)
+dynamic:
+  enable: true
+  
+  # Re-calibration Frequency
+  recalibrate_every_n_frames: 15
+  
+  # Motion Detection
+  detect_camera_motion: true
+  motion_threshold: 0.1         # Fraction of image width
+  
+  # Smoothing
+  apply_exponential_smoothing: true
+  smoothing_alpha: 0.8          # Newer estimates weighted 0.8
+
+# Fallback Calibration (if keypoint detection fails)
+fallback:
+  method: "max_distance"        # Use max ROI vertex distance
+  field_length_m: 100.0
+  
+  # Heuristic Scaling
+  safety_factor: 1.0            # Multiply by safety factor
+
+# Homography Matrix Persistence
+persistence:
+  save_homography: true
+  homography_path: "output/homography_matrix.npy"
+  
+  # Reuse Initialization
+  load_previous_homography: false  # Use last known good homography
+  
+# Performance Tuning
+performance:
+  num_frames_for_calibration: 10  # Frames used for robust calibration
+  batch_process: true
+  
+# Logging
+logging:
+  verbose: true
+  save_calibration_report: true
+  report_path: "debug/calibration_report.json"

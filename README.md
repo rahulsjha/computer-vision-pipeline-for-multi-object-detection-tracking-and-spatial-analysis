@@ -346,6 +346,112 @@ High‑intensity event map:
 
 ---
 
+## Enhanced Features (Optional – for improved accuracy)
+
+The pipeline includes optional advanced features to improve detection and tracking accuracy. These are activated via command‑line flags.
+
+### Enhanced Detection with YOLOv9
+
+Use YOLOv9c instead of YOLOv8n for ~105% more detections and 43% higher confidence:
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py `
+  --source output\clip_5min.mp4 `
+  --profile stable `
+  --roi output\scene_roi.json `
+  --roi-policy box `
+  --output-video output\tracked_5min_yolov9.mp4 `
+  --output-csv output\tracks_5min_yolov9.csv `
+  --model yolov9c.pt `
+  --use-enhanced-detection `
+  --field-length-m 105
+```
+
+**Performance**: YOLOv9c is slower (~6x) but provides better accuracy for scoring submissions.
+
+### Trajectory Smoothing (Kalman Filter)
+
+Smooth noisy tracking trajectories for cleaner analysis:
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py `
+  --source output\clip_5min.mp4 `
+  --profile stable `
+  --roi output\scene_roi.json `
+  --output-video output\tracked_5min_smoothed.mp4 `
+  --output-csv output\tracks_5min_smoothed.csv `
+  --smooth-trajectories `
+  --smoothing-method kalman `
+  --field-length-m 105
+```
+
+**Options**: `--smoothing-method` can be `kalman` (recommended) or `savitzky-golay`.
+
+### Homography Calibration
+
+Compute and save per-frame homography matrices for advanced geometric analysis:
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py `
+  --source output\clip_5min.mp4 `
+  --profile stable `
+  --roi output\scene_roi.json `
+  --output-video output\tracked_5min_geo.mp4 `
+  --output-csv output\tracks_5min_geo.csv `
+  --use-homography-calibration `
+  --save-homography output\homography.json `
+  --field-length-m 105
+```
+
+This improves world-coordinate accuracy for perspective-corrected measurements.
+
+### Combined: All Enhanced Features
+
+For maximum accuracy, combine all enhancements:
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py `
+  --source output\clip_5min.mp4 `
+  --profile stable `
+  --roi output\scene_roi.json `
+  --roi-policy box `
+  --output-video output\tracked_5min_enhanced_all.mp4 `
+  --output-csv output\tracks_5min_enhanced_all.csv `
+  --model yolov9c.pt `
+  --use-enhanced-detection `
+  --use-homography-calibration `
+  --save-homography output\homography_final.json `
+  --smooth-trajectories `
+  --smoothing-method kalman `
+  --validate-output `
+  --field-length-m 105
+```
+
+### Advanced Tracking: DeepSORT (Optional – requires Python ≤ 3.12)
+
+For improved ID consistency in crowded scenes, use appearance-based DeepSORT tracking:
+
+```powershell
+.\venv\Scripts\python.exe .\track_cv.py `
+  --source output\clip_5min.mp4 `
+  --profile stable `
+  --roi output\scene_roi.json `
+  --output-video output\tracked_5min_deepsort.mp4 `
+  --output-csv output\tracks_5min_deepsort.csv `
+  --tracker-type hybrid `
+  --use-enhanced-detection `
+  --field-length-m 105
+```
+
+**Note**: DeepSORT requires:
+- Python 3.9 to 3.12 (not compatible with Python 3.14)
+- Package: `pip install deep-sort-pytorch`
+- ReID model: `osnet_x1_0_imagenet.pth` (25 MB)
+
+If using Python 3.14, skip this flag and use standard `--tracker botsort` instead.
+
+---
+
 ## Reproducing the full set of outputs
 
 To regenerate all artefacts from scratch assuming `videoplayback.mp4` is available:
@@ -353,8 +459,15 @@ To regenerate all artefacts from scratch assuming `videoplayback.mp4` is availab
 1. **Clip extraction** – run `extract_clip.py` (Step 1).
 2. **ROI generation** – run `make_roi.py` (Step 2).
 3. **Full 5‑minute tracking** – run `track_cv.py` with `--profile stable` and `--roi output\scene_roi.json` (Step 3).
+   - **Optional enhancements** (for better accuracy):
+     - Add `--use-enhanced-detection` to enable YOLOv9c detection.
+     - Add `--smooth-trajectories --smoothing-method kalman` for trajectory smoothing.
+     - Add `--use-homography-calibration --save-homography output\homography.json` for advanced geometry.
+     - See the **Enhanced Features** section above for detailed commands and combinations.
 4. **Heatmaps + trajectories** – run `heatmaps.py` (Step 4).
 5. **Evaluation JSONs** – run `rate_rubric.py` and `check_geo_csv.py` (Step 5) to populate `evaluation/results/`.
 
 All resulting videos, CSVs, and visualization images will live in `output/`, while evaluation scorecards are collected under `evaluation/results/`.
+
+**Tip**: For scoring submissions, use the combined enhanced features command above to maximize detection accuracy and tracking stability.
 

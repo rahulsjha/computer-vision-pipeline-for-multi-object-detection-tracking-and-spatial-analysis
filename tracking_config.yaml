@@ -1,0 +1,128 @@
+# Tracking Configuration Parameters
+# Version: 2.0 (DeepSORT with Appearance Embeddings)
+
+tracking:
+  # Tracker Selection
+  tracker_type: "deepsort"     # Options: "bytetrack", "botsort", "deepsort"
+  
+  # DeepSORT Parameters
+  deepsort:
+    max_age: 15                # Frames to keep lost tracks (reduced from 30 for soccer)
+    n_init: 3                  # Detections to start new track
+    nn_budget: 100             # ReID gallery size per track
+    
+    # Matching Thresholds
+    max_iou_distance: 0.50     # IoU threshold (stricter, was 0.7)
+    max_cosine_distance: 0.20  # ReID embedding distance (stricter, was 0.3)
+    metric: "euclidean"        # Distance metric: euclidean, cosine
+    
+    # Appearance Features
+    feature_path: "models/osnet_x1_0_imagenet.pth"  # ReID model weights
+    feature_dim: 512           # Feature embedding dimension
+    
+  # ByteTrack Parameters (Fallback)
+  bytetrack:
+    track_thresh: 0.60         # High confidence threshold
+    track_buffer: 30           # Frames to keep lost tracks
+    match_thresh: 0.9          # Matching threshold
+    frame_rate: 25             # Video FPS (auto-detected, override if needed)
+    
+  # BoT-SORT Parameters (Alternative)
+  botsort:
+    track_thresh: 0.60
+    track_buffer: 30
+    match_thresh: 0.8
+    frame_rate: 25
+    cmc_method: "ecc"          # Camera motion compensation
+
+# Gap Filling & Interpolation
+gap_filling:
+  enable: true                 # Fill temporary tracking gaps
+  
+  # Interpolation Parameters
+  max_gap_frames: 5            # Max frames to interpolate across
+  interpolation_method: "linear"  # Options: linear, cubic_spline
+  
+  # Validation
+  validate_interpolated: true
+  max_speed_interpolated: 15.0 # m/s (enforce realistic motion)
+  max_acceleration: 5.0        # m/s² (enforce reasonable acceleration)
+
+# Track Validation & Filtering
+validation:
+  # Minimum Track Duration
+  min_track_length: 3          # Frames (reject spurious detections)
+  
+  # Persistence Checks
+  min_persistence: 0.3         # Fraction of visible frames required
+  check_id_switches: true      # Log ID changes
+  
+  # Speed Constraints
+  enable_speed_constraint: true
+  max_realistic_speed: 10.0    # m/s (36 km/h for humans)
+  min_realistic_speed: 0.0     # m/s
+
+# Identity Management
+identity_management:
+  # ID Consistency Logging
+  log_id_switches: true
+  log_path: "debug/id_switches.csv"
+  
+  # Persistence Metrics
+  compute_mota: false          # Multi-Object Tracking Accuracy (needs GT)
+  compute_id_metrics: true
+  
+  # ID Reuse Prevention
+  allow_id_reuse: false        # Never reassign old IDs
+  id_offset: 1000              # Offset to prevent collisions
+
+# Output & Logging
+output:
+  # CSV Fields
+  csv_fields:
+    - frame_index
+    - time_seconds
+    - track_id
+    - object_id
+    - cls_id
+    - cls_name
+    - conf
+    - x1
+    - y1
+    - x2
+    - y2
+    - x
+    - y
+    - x_meters
+    - y_meters
+    - speed_mps
+    - speed_kmh
+    - distance_traveled
+    - cluster_id
+    - track_visibility  # NEW: fraction visible
+    - id_switches       # NEW: count of ID changes
+    
+  # Logging
+  verbose: true
+  debug_log: true
+  log_path: "debug/tracking.log"
+
+# Performance Tuning
+performance:
+  batch_size: 32               # Batch size for ReID inference
+  num_workers: 4               # Data loading workers
+  device: "cuda"               # Options: cuda, cpu
+  
+# Thresholds for Different Scenarios
+adaptive_thresholds:
+  enable: false                # TODO: Adapt based on scene characteristics
+  
+  # Set Pieces (clustered)
+  set_piece_max_age: 10
+  set_piece_max_iou_distance: 0.40
+  set_piece_max_cosine_distance: 0.15
+  
+  # Open Play (spread out)
+  open_play_max_age: 20
+  open_play_max_iou_distance: 0.60
+  open_play_max_cosine_distance: 0.25
