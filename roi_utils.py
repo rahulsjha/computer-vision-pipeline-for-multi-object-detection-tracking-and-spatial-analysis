@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
 import cv2
@@ -11,132 +12,102 @@ import numpy as np
 Point = Tuple[int, int]
 
 
+def _normalize_points(points: Iterable[Sequence[float]]) -> List[Point]:
+    normalized: List[Point] = []
+    for point in points:
+        if len(point) != 2:
+            raise ValueError("ROI points must be 2D coordinates")
+        normalized.append((int(round(float(point[0]))), int(round(float(point[1])))))
+    if len(normalized) < 3:
+        raise ValueError("ROI polygon requires at least 3 points")
+    return normalized
+
+
 @dataclass(frozen=True)
 class RoiPolygon:
     points: List[Point]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "points", _normalize_points(self.points))
+
     def as_np(self) -> np.ndarray:
-        return np.array(self.points, dtype=np.int32).reshape((-1, 1, 2))
+        return np.asarray(self.points, dtype=np.int32)
 
-    def contains_points(self, xy: np.ndarray) -> np.ndarray:
-        """Return a boolean mask for which points are inside/on the polygon.
-
-        Args:
-            xy: array of shape (N, 2)
-        """
-        poly = np.array(self.points, dtype=np.int32)
-        out = np.zeros((len(xy),), dtype=bool)
-        for i, (x, y) in enumerate(xy.astype(float)):
-            out[i] = cv2.pointPolygonTest(poly, (float(x), float(y)), False) >= 0
-        return out
-
-    def contains_boxes_xyxy(self, xyxy: np.ndarray, mode: str = "box") -> np.ndarray:
-        """Return a boolean mask for which boxes are inside/on the polygon.
-
-        Args:
-            xyxy: array of shape (N, 4) in [x1, y1, x2, y2]
-            mode: "center" requires center point inside; "box" requires all 4 corners inside
-        """
-        if len(xyxy) == 0:
-            return np.zeros((0,), dtype=bool)
-        if mode not in {"center", "box"}:
-            raise ValueError("mode must be 'center' or 'box'")
-
-        poly = np.array(self.points, dtype=np.int32)
-
-        if mode == "center":
-            centers = np.stack([(xyxy[:, 0] + xyxy[:, 2]) / 2, (xyxy[:, 1] + xyxy[:, 3]) / 2], axis=1)
-            out = np.zeros((len(centers),), dtype=bool)
-            for i, (x, y) in enumerate(centers.astype(float)):
-                out[i] = cv2.pointPolygonTest(poly, (float(x), float(y)), False) >= 0
-            return out
-
-        # mode == "box": all corners must be inside/on ROI
-        out = np.ones((len(xyxy),), dtype=bool)
-        for i, (x1, y1, x2, y2) in enumerate(xyxy.astype(float)):
-            corners = ((x1, y1), (x2, y1), (x2, y2), (x1, y2))
-            for (x, y) in corners:
-                if cv2.pointPolygonTest(poly, (float(x), float(y)), False) < 0:
-                    out[i] = False
-                    break
-        return out
-
-    def mask(self, frame_shape: Sequence[int]) -> np.ndarray:
-        h, w = int(frame_shape[0]), int(frame_shape[1])
-        mask = np.zeros((h, w), dtype=np.uint8)
+    def mask(self, frame_shape: Tuple[int, ...]) -> np.ndarray:
+        height, width = frame_shape[:2]
+        mask = np.zeros((height, width), dtype=np.uint8)
         cv2.fillPoly(mask, [self.as_np()], 255)
         return mask
 
-
-def save_roi(path: str, roi: RoiPolygon) -> None:
-    payload = {"points": [{"x": int(x), "y": int(y)} for x, y in roi.points]}
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    def contains_point(self, x: float, y: float) -> bool:
+        polygon = self.as_np().astype(np.float32)
+        return cv2.pointPolygonTest(polygon, (float(x), float(y)), False) >= 0
 
 
-def load_roi(path: str) -> RoiPolygon:
-    with open(path, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-    points = payload.get("points")
-    if not isinstance(points, list) or len(points) < 3:
-        raise ValueError("ROI JSON must contain at least 3 points under key 'points'")
-    out: List[Point] = []
-    for p in points:
-        out.append((int(p["x"]), int(p["y"])))
-    return RoiPolygon(points=out)
-
-
-def _order_points_clockwise(pts: np.ndarray) -> np.ndarray:
-    # pts: (N,2)
-    center = pts.mean(axis=0)
-    angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
-    order = np.argsort(angles)
-    return pts[order]
+def _fallback_roi(frame: np.ndarray) -> RoiPolygon:
+    height, width = frame.shape[:2]
+    inset_x = max(int(width * 0.03), 1)
+    inset_y = max(int(height * 0.03), 1)
+    return RoiPolygon(
+        [
+            (inset_x, inset_y),
+            (width - inset_x, inset_y),
+            (width - inset_x, height - inset_y),
+            (inset_x, height - inset_y),
+        ]
+    )
 
 
 def auto_detect_roi(frame: np.ndarray) -> RoiPolygon:
-    """Heuristic: detect the main scene boundary on the first frame.
+    if frame is None or frame.size == 0:
+        raise ValueError("Frame is empty")
 
-    If it fails, returns the full-frame rectangle.
-    """
-    h, w = frame.shape[:2]
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    green_mask = cv2.inRange(hsv, (25, 25, 25), (95, 255, 255))
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    kernel = np.ones((7, 7), dtype=np.uint8)
+    cleaned = cv2.morphologyEx(green_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
 
-    edges = cv2.Canny(gray, 50, 150)
-    edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
-
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
-        return RoiPolygon(points=[(0, 0), (w - 1, 0), (w - 1, h - 1), (0, h - 1)])
+        return _fallback_roi(frame)
 
-    # Largest contour by area
-    cnt = max(contours, key=cv2.contourArea)
-    area = cv2.contourArea(cnt)
-    if area < 0.05 * (w * h):
-        # Too small to be meaningful; fallback to full frame
-        return RoiPolygon(points=[(0, 0), (w - 1, 0), (w - 1, h - 1), (0, h - 1)])
+    contour = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(contour) < frame.shape[0] * frame.shape[1] * 0.05:
+        return _fallback_roi(frame)
 
-    peri = cv2.arcLength(cnt, True)
-    approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+    perimeter = cv2.arcLength(contour, True)
+    polygon = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
 
-    pts = approx.reshape(-1, 2) if approx is not None and len(approx) >= 3 else None
-    if pts is None or len(pts) < 3:
-        return RoiPolygon(points=[(0, 0), (w - 1, 0), (w - 1, h - 1), (0, h - 1)])
+    if len(polygon) < 4:
+        rect = cv2.minAreaRect(contour)
+        polygon = cv2.boxPoints(rect)
+        polygon = np.asarray(polygon, dtype=np.float32)
+    else:
+        polygon = polygon.reshape(-1, 2)
 
-    # If too many points, simplify via convex hull then approx again
-    if len(pts) > 12:
-        hull = cv2.convexHull(pts)
-        peri = cv2.arcLength(hull, True)
-        approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
-        pts = approx.reshape(-1, 2)
+    return RoiPolygon(polygon.tolist())
 
-    # Clip points to image bounds
-    pts[:, 0] = np.clip(pts[:, 0], 0, w - 1)
-    pts[:, 1] = np.clip(pts[:, 1], 0, h - 1)
 
-    # Make ordering stable
-    pts = _order_points_clockwise(pts.astype(np.float32)).astype(np.int32)
+def save_roi(path: str, roi: RoiPolygon) -> None:
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"points": [[x, y] for x, y in roi.points]}
+    with out_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
 
-    return RoiPolygon(points=[(int(x), int(y)) for x, y in pts])
+
+def load_roi(path: str) -> RoiPolygon:
+    with Path(path).open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if isinstance(payload, dict):
+        points = payload.get("points")
+    else:
+        points = payload
+
+    if not isinstance(points, list):
+        raise ValueError(f"Unsupported ROI file format: {path}")
+
+    return RoiPolygon(points)

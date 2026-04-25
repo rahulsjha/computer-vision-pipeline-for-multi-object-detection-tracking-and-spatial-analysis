@@ -11,6 +11,11 @@ End‑to‑end pipeline to go from a long broadcast football video to:
 
 The code is written for Windows + Python and uses Ultralytics YOLOv8 and OpenCV.
 
+## Demo assets
+
+- Tracked CSV file: [Download from Google Drive](https://drive.google.com/file/d/17s8lPVnUYUlhqrokCM4b0mP3FgjO3Ffg/view?usp=sharing)
+- Demo tracked video: [Open Google Drive folder](https://drive.google.com/drive/folders/13y5uNYFVJnfRdN--NLxON761I_HPKyga?usp=sharing)
+
 ---
 
 ## Repository structure
@@ -25,7 +30,7 @@ The code is written for Windows + Python and uses Ultralytics YOLOv8 and OpenCV.
 - `evaluation/scripts/` – analysis + rubric scripts (tracking, ROI, geometry).
 - `evaluation/results/` – saved JSON reports from evaluation scripts.
 - `output/` – generated artefacts: video clips, tracked videos, CSVs, ROI JSON, heatmaps.
-- `tracking_image*.png` – example tracking frames used in the documentation.
+- `heatmap_global.png`, `heatmap_cluster_0.png`, `heatmap_events.png`, `trajectories.png` – bundled example visual outputs used in the documentation.
 ---
 
 ## Environment setup
@@ -162,7 +167,7 @@ Given the geometry‑enriched CSV and ROI, generate spatial visualizations on to
 This produces (all constrained by the ROI polygon):
 
 - `heatmap_global.png` – global positional heatmap of all player positions.
-- `heatmap_cluster_*.png` – per‑cluster heatmaps showing positional tendencies by zone/role.
+- `heatmap_cluster_0.png` – sample cluster heatmap showing positional tendencies for one cluster.
 - `heatmap_events.png` – high‑contrast event density map (Gaussian‑blurred global heat).
 - `trajectories_2d.png` – static 2D trajectory map with polylines for each ID.
 
@@ -220,13 +225,10 @@ The bundled report in `evaluation/results/geo_check_tracks_5min_geo.json` shows,
 
 ## Example qualitative results
 
-Tracking frames (sampled from the tracked 5‑minute video):
+Tracked outputs:
 
-![Tracking sample 1](tracking_image1.png)
-
-![Tracking sample 2](tracking_image2.png)
-
-![Tracking sample 3](tracking_image3.png)
+- Tracked CSV file: [Download from Google Drive](https://drive.google.com/file/d/17s8lPVnUYUlhqrokCM4b0mP3FgjO3Ffg/view?usp=sharing)
+- Demo tracked video: [Open Google Drive folder](https://drive.google.com/drive/folders/13y5uNYFVJnfRdN--NLxON761I_HPKyga?usp=sharing)
 
 These illustrate:
 
@@ -236,7 +238,7 @@ These illustrate:
 Once `heatmaps.py` has been run you will also have, for example:
 
 - `output/heatmap_global.png` – where players spend the most time.
-- `output/heatmap_cluster_0.png`, `output/heatmap_cluster_1.png`, ... – positional density per zone.
+- `output/heatmap_cluster_0.png` – positional density for a representative cluster.
 - `output/heatmap_events.png` – high‑intensity regions of activity.
 - `output/trajectories_2d.png` – overall flow of movement.
 
@@ -251,8 +253,6 @@ Global occupancy heatmap:
 Cluster / zone‑like heatmaps:
 
 ![Cluster 0 heatmap](heatmap_cluster_0.png)
-![Cluster 1 heatmap](heatmap_cluster_1.png)
-![Cluster 2 heatmap](heatmap_cluster_2.png)
 
 High‑intensity event map:
 
@@ -260,7 +260,7 @@ High‑intensity event map:
 
 2D trajectory map (all tracks, normalized to pitch plane):
 
-![2D trajectories](trajectories_2d.png)
+![2D trajectories](trajectories.png)
 
 ---
 
